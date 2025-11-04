@@ -37,19 +37,6 @@
 - **Workflow:** Clean data → enrich with country shapes / codes → compute country & industry aggregates → produce publication‑style charts.
 - **Deliverables:** Reproducible notebook/script, compiled report (PDF/HTML), and exported figures under `Figures/`.
 
-## Repo structure (suggested)
-```
-Analysing-Global-Billionaires-distribution-2023/
-├─ data/
-├─ notebooks/                 # or scripts/
-├─ report/
-├─ Figures/
-│  ├─ output1.jpg             # world choropleth
-│  ├─ output2.jpg             # top-10 bar chart
-│  └─ output3.jpg             # industry treemap
-└─ README.md
-```
-
 ## Notes
 - If you add new charts, export them into `Figures/` so they’re viewable on GitHub.
 - Large raw datasets can be linked externally and ignored from version control if needed.
