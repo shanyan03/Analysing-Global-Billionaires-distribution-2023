@@ -1,0 +1,2183 @@
+# DSC201 Statistical Programming Using R
+# Dr. Toa Chean Khim
+# Assignment 
+# DSC2209676 Lee Shan Yan, DSC2209677 Lee Zi Hooi
+
+# Installing necessary libraries
+library(treemap)
+library(ggplot2)
+library(GGally)
+library(corrplot)
+library(rstatix)
+library(broom)
+library(kableExtra)
+library(patternplot)
+library(gganimate)
+library(gapminder)
+library(gridExtra)
+library(scales)
+library(reshape2)
+library(tidyr)
+library(dplyr)
+
+
+# Data processing
+# Understand the data
+# Read data
+billionaires <- read.csv("Billionaires Statistics Dataset.csv", header = TRUE)
+str(billionaires)
+
+# Dataset selection and transformation
+# Aggregate data by country
+country_billionaire <- billionaires %>%
+  group_by(country) %>%
+  summarise(
+    number_of_billionaires = n(),
+    avg_final_worth = mean(finalWorth, na.rm = TRUE),
+    total_final_worth = sum(finalWorth, na.rm = TRUE),
+    most_common_industry = names(sort(table(industries), decreasing = TRUE)[1]),
+    industry_diversity = n_distinct(industries),
+    concatenated_industries = paste(industries, collapse = ", "),
+    proportion_self_made = mean(selfMade, na.rm = TRUE), # Proportion of self-made billionaires
+    proportion_male = mean(gender == "M", na.rm = TRUE), # Proportion of male billionaires
+    cpi_country = first(cpi_country),
+    cpi_change_country = first(cpi_change_country),
+    gdp_country = first(gdp_country),
+    gross_tertiary_education_enrollment = first(gross_tertiary_education_enrollment),
+    gross_primary_education_enrollment_country = first(gross_primary_education_enrollment_country),
+    life_expectancy_country = first(life_expectancy_country),
+    tax_revenue_country = first(tax_revenue_country_country),
+    total_tax_rate_country = first(total_tax_rate_country),
+    population_country = first(population_country),
+    latitude_country = first(latitude_country),
+    longitude_country = first(longitude_country),
+    .groups = 'drop'
+  )
+
+# Check structure
+str(country_billionaire)
+
+# Data type conversion
+# Remove dollar signs, commas and any whitespace for gdp_country
+country_billionaire$gdp_country <- gsub("\\$|,|\\s+", "", country_billionaire$gdp_country)
+
+# Convert cleaned gdp_country (char) to numeric
+country_billionaire$gdp_country <- as.numeric(country_billionaire$gdp_country)
+
+# Handling missing values: Checking
+# Check for missing values in all columns
+print(colSums(is.na(country_billionaire)))
+
+unique(country_billionaire$country)
+
+# Handling missing values
+# Remove rows where the country column is empty or missing
+country_billionaire <- country_billionaire %>%
+  filter(country != "" & !is.na(country))
+
+unique(country_billionaire$country)
+
+# Function to calculate the mode
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+# Handle missing values for both numeric and categorical columns
+impute_missing <- function(df) {
+  for (col in names(df)) {
+    if (is.numeric(df[[col]]) || is.integer(df[[col]])) {
+      # For numeric columns, replace NA with the mean
+      df[[col]][is.na(df[[col]])] <- mean(df[[col]], na.rm = TRUE)
+    } else if (is.character(df[[col]])) {
+      # For categorical columns, replace NA with the mode
+      df[[col]][is.na(df[[col]])] <- Mode(df[[col]])
+    }
+  }
+  return(df)
+}
+
+# Apply the function to the billionaires dataset
+new_billionaires_clean <- impute_missing(country_billionaire)
+print(colSums(is.na(new_billionaires_clean)))
+
+# Check for duplicates
+duplicated(new_billionaires_clean)  # Identify duplicate rows
+sum(duplicated(new_billionaires_clean))
+
+# View final cleaned dataset
+str(new_billionaires_clean)
+summary(new_billionaires_clean)
+head(new_billionaires_clean)
+View(new_billionaires_clean)
+
+# Number of billionaires analysis
+# Visualising countries-billionaires information
+# Load world map data
+world_map <- map_data("world")
+
+# Standardize country names in your dataset to match world_map
+# If "USA" is how the United States is represented, map it accordingly
+new_billionaires_clean$country <- dplyr::recode(
+  new_billionaires_clean$country,
+  "United States" = "USA"
+)
+
+# Check data types and convert to character if necessary
+world_map$region <- as.character(world_map$region)
+new_billionaires_clean$country <- as.character(new_billionaires_clean$country)
+
+# Merge the datasets
+geo_billionaire <- world_map %>%
+  left_join(new_billionaires_clean, by = c("region" = "country"))
+
+# Plot the map
+ggplot() +
+  geom_polygon(data = geo_billionaire, 
+               aes(x = long, y = lat, group = group, fill = number_of_billionaires), 
+               color = "grey80") +
+  scale_fill_gradient(low = "pink", high = "purple", na.value = "white", name = "Number of Billionaires") +
+  labs(title = "Global Distribution of Billionaires by Country",
+       x = "Longitude", y = "Latitude") +
+  coord_fixed(1.3) +  # Maintain aspect ratio
+  theme_minimal() +
+  theme(legend.position = "right")
+
+# Enhanced bar plot with shadow effect
+library(ggplot2)
+# 1. Top 10 Countries by Number of Billionaires
+top_countries_billionaires <- new_billionaires_clean %>%
+  arrange(desc(number_of_billionaires)) %>%
+  slice(1:10)
+
+plot_top_countries_billionaires <- ggplot(top_countries_billionaires) +
+  # Shadow layer (slightly offset and darker)
+  geom_bar(
+    aes(x = reorder(country, -number_of_billionaires), y = number_of_billionaires),
+    stat = "identity",
+    width = 0.7,
+    fill = "grey50",
+    alpha = 0.4,
+    position = position_nudge(x = 0.15, y = -2) # Offset shadow
+  ) +
+  # Main bar layer
+  geom_bar(
+    aes(x = reorder(country, -number_of_billionaires), y = number_of_billionaires, fill = number_of_billionaires),
+    stat = "identity",
+    width = 0.7,
+    color = "black",
+    alpha = 0.9
+  ) +
+  # Data labels
+  geom_text(
+    aes(x = reorder(country, -number_of_billionaires), y = number_of_billionaires, label = number_of_billionaires),
+    vjust = -0.5,
+    color = "black",
+    size = 5
+  ) +
+  # Gradient fill for the bars
+  scale_fill_gradient(low = "pink", high = "purple", name = "Billionaires") +
+  # Labels and theme adjustments
+  labs(
+    title = "Top 10 Countries by Number of Billionaires",
+    subtitle = "Data represents the countries with the highest billionaire counts",
+    x = "Country",
+    y = "Number of Billionaires"
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, face = "italic", hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none",  # Hide the legend
+    panel.grid.major.x = element_blank() # Remove vertical gridlines
+  ) +
+  coord_cartesian(clip = "off") # Prevent clipping of text outside plot
+
+# Display the plot
+plot_top_countries_billionaires
+
+# 2. Top 10 Countries by Highest Total Final Worth
+top_countries_final_worth <- new_billionaires_clean %>%
+  arrange(desc(total_final_worth)) %>%
+  slice(1:10)
+
+plot_top_countries_final_worth <- ggplot(top_countries_final_worth) +
+  # Shadow layer (slightly offset and darker)
+  geom_bar(
+    aes(x = reorder(country, -total_final_worth), y = total_final_worth),
+    stat = "identity",
+    width = 0.7,
+    fill = "grey50",
+    alpha = 0.4,
+    position = position_nudge(x = 0.15, y = -2) # Offset shadow
+  ) +
+  # Main bar layer
+  geom_bar(
+    aes(x = reorder(country, -total_final_worth), y = total_final_worth, fill = total_final_worth),
+    stat = "identity",
+    width = 0.7,
+    color = "black",
+    alpha = 0.9
+  ) +
+  # Data labels
+  geom_text(
+    aes(x = reorder(country, -total_final_worth), y = total_final_worth, label = scales::comma(total_final_worth)),
+    vjust = -0.5,
+    color = "black",
+    size = 5
+  ) +
+  # Gradient fill for the bars
+  scale_fill_gradient(low = "pink", high = "purple", name = "Total Final Worth") +
+  # Labels and theme adjustments
+  labs(
+    title = "Top 10 Countries by Total Final Worth",
+    subtitle = "Data represents the countries with the highest combined billionaire wealth",
+    x = "Country",
+    y = "Total Final Worth (in billions, USD)"
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, face = "italic", hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none",
+    panel.grid.major.x = element_blank() # Remove vertical gridlines
+  ) +
+  coord_cartesian(clip = "off") # Prevent clipping of text outside plot
+
+# Display the plot
+plot_top_countries_final_worth
+
+# 3. Self-Made vs. Inherited Wealth (Using Proportion)
+library(dplyr)
+self_made_proportions <- new_billionaires_clean %>%
+  summarise(
+    proportion_self_made = mean(proportion_self_made, na.rm = TRUE), # Proportion of self-made
+    proportion_inherited = 1 - mean(proportion_self_made, na.rm = TRUE) # Proportion of inherited
+  )
+
+# Transform data into long format for plotting
+self_made_proportions_long <- self_made_proportions %>%
+  pivot_longer(cols = everything(), names_to = "wealth_status", values_to = "proportion") %>%
+  mutate(wealth_status = recode(wealth_status, 
+                                "proportion_self_made" = "Self-Made", 
+                                "proportion_inherited" = "Inherited"))
+
+plot_self_made_vs_inherited <- ggplot(self_made_proportions_long) +
+  # Shadow layer (slightly offset and darker)
+  geom_bar(
+    aes(x = wealth_status, y = proportion),
+    stat = "identity",
+    width = 0.7,
+    fill = "grey50",
+    alpha = 0.4,
+    position = position_nudge(x = 0.15, y = -0.02) # Offset shadow
+  ) +
+  # Main bar layer
+  geom_bar(
+    aes(x = wealth_status, y = proportion, fill = wealth_status),
+    stat = "identity",
+    width = 0.7,
+    color = "black",
+    alpha = 0.9
+  ) +
+  # Data labels
+  geom_text(
+    aes(x = wealth_status, y = proportion, label = scales::percent(proportion)),
+    vjust = -0.5,
+    color = "black",
+    size = 5
+  ) +
+  # Custom fill colors for Self-Made and Inherited
+  scale_fill_manual(values = c("Self-Made" = "pink", "Inherited" = "purple")) +
+  # Labels and theme adjustments
+  labs(
+    title = "Self-Made vs. Inherited Wealth Proportions",
+    subtitle = "Proportions of self-made vs. inherited wealth among billionaires",
+    x = "Wealth Status",
+    y = "Proportion"
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, face = "italic", hjust = 0.5),
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    legend.position = "none",  # Hide the legend
+    panel.grid.major.x = element_blank() # Remove vertical gridlines
+  ) +
+  coord_cartesian(clip = "off") # Prevent clipping of text outside plot
+
+# Display the plot
+plot_self_made_vs_inherited
+
+# 4. Gender Distribution (Using Proportion)
+gender_proportions <- new_billionaires_clean %>%
+  summarise(
+    proportion_male = mean(proportion_male, na.rm = TRUE),
+    proportion_female = 1 - mean(proportion_male, na.rm = TRUE) # Calculate female proportion
+  )
+
+# Transform data into long format for plotting
+gender_proportions_long <- gender_proportions %>%
+  pivot_longer(cols = everything(), names_to = "gender", values_to = "proportion") %>%
+  mutate(gender = recode(gender, "proportion_male" = "Male", "proportion_female" = "Female"))
+
+# Add percentage labels for the pie chart
+gender_proportions_long <- gender_proportions_long %>%
+  mutate(label = paste0(round(proportion * 100, 1), "%"))
+
+# Create a more special gender distribution pie chart
+plot_gender <- ggplot(gender_proportions_long, aes(x = 2, y = proportion, fill = gender)) +
+  geom_bar(stat = "identity", width = 1, color = "white") +  # Add border to slices
+  coord_polar("y", start = 0) +
+  geom_text(aes(y = cumsum(proportion) - (proportion / 2), label = label), color = "white", size = 5) +  # Labels inside slices
+  labs(
+    title = "Gender Distribution Across Countries",
+    subtitle = "Proportion of Male and Female Billionaires"
+  ) +
+  scale_fill_manual(values = c("Male" = "purple", "Female" = "pink")) +  # Enhanced colors
+  theme_void() +  # Cleaner theme
+  theme(
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, face = "italic", hjust = 0.5),
+    legend.title = element_blank(),
+    legend.position = "bottom"
+  ) +
+  xlim(0.5, 2.5)  # Donut-style chart
+
+plot_gender
+
+# Split concatenated industries into individual rows
+industry_counts <- new_billionaires_clean %>%
+  separate_rows(concatenated_industries, sep = ", ") %>%  # Split industries by ", "
+  count(concatenated_industries, sort = TRUE)            # Count occurrences of each industry
+
+# Extract the top 10 industries by count
+top_industries <- industry_counts %>%
+  slice(1:10)
+
+# Generate a gradient from pink to purple
+gradient_colors <- colorRampPalette(c("pink", "purple"))(10)
+
+# Create the plot with gradient colors and counts displayed
+plot_top_industries <- ggplot(top_industries, aes(x = reorder(concatenated_industries, n), y = n, fill = reorder(concatenated_industries, n))) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = n), hjust = -0.2, size = 4) +  # Add count labels to bars
+  coord_flip() +
+  scale_fill_manual(values = gradient_colors) +  # Apply gradient colors in correct order
+  labs(
+    title = "Top 10 Industries by Number of Billionaires",
+    x = "Industry",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(size = 18, face = "bold", hjust = 0.5),
+    axis.title.x = element_text(size = 14),
+    axis.title.y = element_text(size = 14)
+  )
+
+plot_top_industries
+
+# Enhanced histogram for number_of_billionaires
+ggplot(new_billionaires_clean, aes(x = number_of_billionaires)) +
+  geom_histogram(
+    binwidth = 10, # Adjust bin width
+    fill = "purple", # Updated fill color to a gradient shade
+    color = "white", # Bar border for a cleaner look
+    alpha = 0.85 # Slight transparency for better layering
+  ) +
+  scale_x_continuous(labels = scales::comma) + # Format x-axis labels for better readability
+  labs(
+    title = "Distribution of Billionaires Across Countries",
+    subtitle = "Grouped by Number of Billionaires in Intervals of 10",
+    x = "Number of Billionaires",
+    y = "Frequency"
+  ) +
+  theme_minimal(base_size = 15) + # Larger font size for better readability
+  theme(
+    plot.title = element_text(size = 20, face = "bold", hjust = 0.5), # Center and bold title
+    plot.subtitle = element_text(size = 14, face = "italic", hjust = 0.5), # Styled subtitle
+    axis.title.x = element_text(size = 14, margin = margin(t = 10)), # Add margin to x-axis title
+    axis.title.y = element_text(size = 14, margin = margin(r = 10)), # Add margin to y-axis title
+    axis.text = element_text(size = 12), # Adjust axis text size
+    panel.grid.major = element_line(color = "gray85", linetype = "dashed") # Dashed grid lines for clarity
+  )
+
+ggplot(new_billionaires_clean, aes(y = number_of_billionaires, x = total_final_worth)) +
+  geom_point() +
+  xlab("total_final_worth") +
+  ylab("number_of_billionaires")
+
+ggplot(new_billionaires_clean, aes(y = number_of_billionaires, x = total_final_worth)) +
+  geom_point() +
+  coord_cartesian(ylim = c(0, 100), xlim = c(0, 5e5)) +  # Adjust ranges as needed
+  xlab("total_final_worth") +
+  ylab("number_of_billionaires")
+
+iqr_value <- IQR(new_billionaires_clean$number_of_billionaires)
+cat("IQR value: ",iqr_value, "\n")
+
+# Calculate Q1 and Q3
+q1 <- quantile(new_billionaires_clean$number_of_billionaires,0.25)
+q3 <- quantile(new_billionaires_clean$number_of_billionaires,0.75)
+cat("The Q1 is: ", q1, " and Q3 is: ", q3, '\n' )
+
+#Identify outliers
+lower_bound <- q1 - 1.5 * iqr_value
+upper_bound <- q3 + 1.5 * iqr_value
+lower_bound
+upper_bound
+
+outliers <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$number_of_billionaires < lower_bound | new_billionaires_clean$number_of_billionaires > upper_bound]
+
+cat("Outliers: ", outliers)
+
+num_outliers <- length(outliers)
+cat("\nNumber of outliers: ", num_outliers, "\n")
+
+n <- length(new_billionaires_clean$number_of_billionaires)
+
+#percentage of outliers in the dataset
+percentage_o <- (num_outliers/n) *100
+percentage_o
+
+# Remove outliers
+new_billionaires_clean <- new_billionaires_clean[new_billionaires_clean$number_of_billionaires >= lower_bound 
+                                                 & new_billionaires_clean$number_of_billionaires <= upper_bound ,]
+outliers_new <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$number_of_billionaires < lower_bound | new_billionaires_clean$number_of_billionaires > upper_bound]
+num_outliers_new <- length(outliers_new)
+num_outliers_new
+
+View(new_billionaires_clean)
+
+# Enhanced histogram for number_of_billionaires
+ggplot(new_billionaires_clean, aes(x = number_of_billionaires)) +
+  geom_histogram(
+    binwidth = 10, # Adjust bin width
+    fill = "purple", # Updated fill color to a gradient shade
+    color = "white", # Bar border for a cleaner look
+    alpha = 0.85 # Slight transparency for better layering
+  ) +
+  scale_x_continuous(labels = scales::comma) + # Format x-axis labels for better readability
+  labs(
+    title = "Distribution of Billionaires Across Countries",
+    subtitle = "Grouped by Number of Billionaires in Intervals of 10",
+    x = "Number of Billionaires",
+    y = "Frequency"
+  ) +
+  theme_minimal(base_size = 15) + # Larger font size for better readability
+  theme(
+    plot.title = element_text(size = 20, face = "bold", hjust = 0.5), # Center and bold title
+    plot.subtitle = element_text(size = 14, face = "italic", hjust = 0.5), # Styled subtitle
+    axis.title.x = element_text(size = 14, margin = margin(t = 10)), # Add margin to x-axis title
+    axis.title.y = element_text(size = 14, margin = margin(r = 10)), # Add margin to y-axis title
+    axis.text = element_text(size = 12), # Adjust axis text size
+    panel.grid.major = element_line(color = "gray85", linetype = "dashed") # Dashed grid lines for clarity
+  )
+
+# Calculate statistical measures for number_of_billionaires
+stats <- new_billionaires_clean %>% summarise( mean = mean(number_of_billionaires, na.rm = TRUE), median = median(number_of_billionaires, na.rm = TRUE), mode = as.numeric(names(sort(table(number_of_billionaires), decreasing = TRUE)[1])), variance = var(number_of_billionaires, na.rm = TRUE), std_dev = sd(number_of_billionaires, na.rm = TRUE) )
+
+print(stats)
+
+library(moments)
+skewness_value <- skewness(new_billionaires_clean$number_of_billionaires, na.rm = TRUE)
+kurtosis_value <- kurtosis(new_billionaires_clean$number_of_billionaires, na.rm = TRUE)
+
+cat("Skewness:", skewness_value, "\nKurtosis:", kurtosis_value, "\n")
+
+# Fit a Poisson distribution
+set.seed(42)
+lambda <- mean(new_billionaires_clean$number_of_billionaires) # Poisson parameter λ
+lambda
+
+# Add theoretical Poisson probabilities to the dataset
+max_billionaires <- max(new_billionaires_clean$number_of_billionaires)
+poisson_prob <- dpois(0:max_billionaires, lambda)
+
+# Compare observed vs expected (Poisson)
+observed_counts <- table(new_billionaires_clean$number_of_billionaires)
+observed_prob <- observed_counts / sum(observed_counts)
+
+# Plot observed vs Poisson probabilities
+comparison <- data.frame(
+  number_of_billionaires = as.numeric(names(observed_counts)),
+  observed_prob = as.vector(observed_prob),
+  poisson_prob = poisson_prob[1:length(observed_counts)]
+)
+
+# Plot observed vs Poisson probabilities with enhanced styling
+ggplot(comparison, aes(x = number_of_billionaires)) +
+  geom_bar(aes(y = observed_prob), stat = "identity", fill = "purple", alpha = 0.85, color = "white") + # Adjusted to purple and added border
+  geom_line(aes(y = poisson_prob), color = "red", size = 1) + # Retained red line
+  scale_x_continuous(labels = scales::comma) + # Format x-axis labels for readability
+  labs(
+    title = "Observed vs. Poisson Distribution",
+    x = "Number of Billionaires",
+    y = "Probability"
+  ) +
+  theme_minimal(base_size = 15) + # Larger font size for better readability
+  theme(
+    plot.title = element_text(size = 20, face = "bold", hjust = 0.5), # Center and bold title
+    plot.subtitle = element_text(size = 14, face = "italic", hjust = 0.5), # Styled subtitle
+    axis.title.x = element_text(size = 14, margin = margin(t = 10)), # Add margin to x-axis title
+    axis.title.y = element_text(size = 14, margin = margin(r = 10)), # Add margin to y-axis title
+    axis.text = element_text(size = 12), # Adjust axis text size
+    panel.grid.major = element_line(color = "gray85", linetype = "dashed") # Dashed grid lines for clarity
+  )
+
+# Extracting sample from population
+# Random Sample
+set.seed(42)
+
+random_sample <- new_billionaires_clean %>%
+  sample_n(size = 40)
+
+# View the random sample
+print(random_sample)
+
+# Perform one sample Z-Test
+#Perform one sample Z-Test
+mean_population<- mean(new_billionaires_clean$number_of_billionaires)
+cat("Population mean: ", mean_population)
+
+mean_sample <- mean(random_sample$number_of_billionaires)
+cat("\nSample mean: ", mean_sample)
+
+sd_population <- sqrt(var(new_billionaires_clean$number_of_billionaires))
+
+n <- length(new_billionaires_clean$number_of_billionaires)  
+
+standard_error <- sd_population / sqrt(n)
+
+# Calculate Z statistics
+z_statistics <- (mean_sample - mean_population) / standard_error
+cat("\nZ statistic: ", round(z_statistics, 2))
+
+# Determine critical z-value for two tailed test at 0.05 significance level
+alpha <- 0.05
+z_critical <- qnorm(1 - alpha / 2) #two tailed use alpha / 2
+cat("\nCritical value: ", round(z_critical, 2))
+
+# Compare z statistics and critical value to make decision
+if (abs(z_statistics) > z_critical) {
+  decision <- "Reject the null hypothesis"
+}else {
+  decision <- "Fail to reject the null hypothesis"
+}
+
+cat("\nDecision of Z test:",decision)
+
+# Sampling Distribution for Number of Billionaires
+# Sampling DIstribution for number of billionaires
+# Parameters for simulation
+sample_size <- 40  # Define the size of each sample
+n_simulations <- 1000  # Number of simulations
+
+# Simulate sample means
+sample_means <- replicate(
+  n_simulations,
+  mean(sample(new_billionaires_clean$number_of_billionaires, size = sample_size, replace = TRUE))
+)
+
+# Summary of the sampling distribution
+summary(sample_means)
+
+# Plot the sampling distribution with enhanced style
+ggplot(data.frame(sample_means = sample_means), aes(x = sample_means)) +
+  geom_histogram(
+    binwidth = 0.5, 
+    fill = "purple", 
+    color = "white", 
+    alpha = 0.85
+  ) +
+  labs(
+    title = "Sampling Distribution of the Mean",
+    subtitle = "Illustrating the Distribution of Sample Means",
+    x = "Sample Mean",
+    y = "Frequency"
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, face = "italic", hjust = 0.5),
+    axis.title.x = element_text(size = 14, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 14, margin = margin(r = 10)),
+    axis.text = element_text(size = 12),
+    panel.grid.major = element_line(color = "gray85", linetype = "dashed")
+  )
+
+theoretical_mean <- mean(sample_means)  # Should approximate the population mean
+theoretical_sd <- sd(sample_means)  # Standard error of the mean
+
+# Overlay normal curve with enhanced style
+ggplot(data.frame(sample_means = sample_means), aes(x = sample_means)) +
+  geom_histogram(
+    aes(y = ..density..), 
+    binwidth = 0.5, 
+    fill = "purple", 
+    color = "white", 
+    alpha = 0.85
+  ) +
+  stat_function(
+    fun = dnorm, 
+    args = list(mean = theoretical_mean, sd = theoretical_sd),
+    color = "red", 
+    size = 1.2
+  ) +
+  labs(
+    title = "Sampling Distribution of the Sample Mean with Normal Curve",
+    subtitle = "Comparison Between Observed Sampling Distribution and Theoretical Normal Curve",
+    x = "Sample Mean",
+    y = "Density"
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.title = element_text(size = 20, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 14, face = "italic", hjust = 0.5),
+    axis.title.x = element_text(size = 14, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 14, margin = margin(r = 10)),
+    axis.text = element_text(size = 12),
+    panel.grid.major = element_line(color = "gray85", linetype = "dashed")
+  )
+
+# Section 1: Economic Indicators and Billionaires Distribution
+# 1.1 Descriptive Statistics
+# Calculate Summary Statistics
+
+# List of economic indicators to analyze
+indicators <- c("gdp_country", "cpi_country", "cpi_change_country", 
+                "tax_revenue_country", "total_tax_rate_country", "population_country")
+
+# Summary table for mean, median, and variance
+summary_stats <- new_billionaires_clean %>%
+  summarise(across(all_of(indicators), 
+                   list(mean = ~ mean(. , na.rm = TRUE),
+                        median = ~ median(. , na.rm = TRUE),
+                        variance = ~ var(. , na.rm = TRUE)
+                   ), .names = "{col}_{fn}")) 
+
+# Print the summary table
+print(summary_stats)
+
+# Load required libraries
+library(ggplot2)
+library(patchwork)
+
+# Create individual histograms for each indicator
+hist_gdp <- ggplot(new_billionaires_clean, aes(x = gdp_country)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs(title = "GDP (Country)", x = "GDP", y = "Frequency") +
+  theme_minimal()
+
+hist_cpi <- ggplot(new_billionaires_clean, aes(x = cpi_country)) +
+  geom_histogram(fill = "lightgreen", color = "black", bins = 30) +
+  labs(title = "CPI (Country)", x = "CPI", y = "Frequency") +
+  theme_minimal()
+
+hist_cpi_change <- ggplot(new_billionaires_clean, aes(x = cpi_change_country)) +
+  geom_histogram(fill = "orange", color = "black", bins = 30) +
+  labs(title = "CPI Change (Country)", x = "CPI Change", y = "Frequency") +
+  theme_minimal()
+
+hist_tax_revenue <- ggplot(new_billionaires_clean, aes(x = tax_revenue_country)) +
+  geom_histogram(fill = "purple", color = "black", bins = 30) +
+  labs(title = "Tax Revenue (Country)", x = "Tax Revenue (%)", y = "Frequency") +
+  theme_minimal()
+
+hist_tax_rate <- ggplot(new_billionaires_clean, aes(x = total_tax_rate_country)) +
+  geom_histogram(fill = "pink", color = "black", bins = 30) +
+  labs(title = "Total Tax Rate (Country)", x = "Tax Rate (%)", y = "Frequency") +
+  theme_minimal()
+
+
+# Combine all histograms in one subplot using patchwork
+(hist_gdp | hist_cpi | hist_cpi_change) /
+  (hist_tax_revenue | hist_tax_rate )
+
+# 1.2 Correlation Analysis
+# Extract data only for the selected indicators
+indicators <- c("number_of_billionaires", "gdp_country", "cpi_country", "cpi_change_country", 
+                "tax_revenue_country", "total_tax_rate_country", "population_country")
+data1 <- new_billionaires_clean[indicators]
+
+# Covariance Matrix
+cov_matrix <- cov(data1, use = "complete.obs")
+print("Covariance Matrix:")
+print(cov_matrix)
+
+# Pearson Correlation
+pearson_corr <- cor(data1, method = "pearson", use = "complete.obs")
+print("Pearson Correlation Matrix:")
+print(pearson_corr)
+
+# Spearman Correlation
+spearman_corr <- cor(data1, method = "spearman", use = "complete.obs")
+print("Spearman Correlation Matrix:")
+print(spearman_corr)
+
+# Visualisation for Summary
+# Convert matrices to long format for ggplot2 heatmap
+pearson_long <- melt(pearson_corr)
+spearman_long <- melt(spearman_corr)
+
+# Function to create a heatmap with text annotations
+create_heatmap <- function(data_long, title) {
+  ggplot(data_long, aes(Var1, Var2, fill = value)) +
+    geom_tile(color = "white") +
+    geom_text(aes(label = sprintf("%.2f", value)), color = "black", size = 3) +
+    scale_fill_gradient2(low = "pink", high = "purple", mid = "white", 
+                         midpoint = 0, limit = c(-1, 1), space = "Lab", 
+                         name = "Correlation") +
+    labs(title = title, x = "", y = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+# Pearson Correlation Matrix Heatmap
+pearson_plot <- create_heatmap(pearson_long, "Pearson Correlation Heatmap")
+print(pearson_plot)
+
+# Spearman Correlation Matrix Heatmap
+spearman_plot <- create_heatmap(spearman_long, "Spearman Correlation Heatmap")
+print(spearman_plot)
+
+# 1.3 Economic indicator gdp_country with number of billionaires
+# Sample creation and threshold on gdp_country
+median_gdp <- median(new_billionaires_clean$gdp_country, na.rm = TRUE)
+new_billionaires_clean$gdp_group <- ifelse(new_billionaires_clean$gdp_country > median_gdp, "High-GDP", "Low-GDP")
+
+high_gdp_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$gdp_group == "High-GDP"]
+low_gdp_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$gdp_group == "Low-GDP"]
+
+# Summarize country-level GDP, billionaires, and group assignment
+median_gdp_summary <- new_billionaires_clean %>%
+  group_by(country) %>%
+  summarise(
+    country_gdp = sum(gdp_country, na.rm = TRUE),          # Total GDP for the country
+    gdp_group = ifelse(country_gdp > median_gdp, "High-GDP", "Low-GDP") # Group based on median GDP
+  )
+
+# Display the table with GDP summary and groups
+print(median_gdp_summary)
+
+# Merge the GDP group labels (High-GDP or Low-GDP) with the new_billionaires_clean
+table(new_billionaires_clean$gdp_group)
+
+#1.3.1 Hypothesis Testing
+# Print the null and alternative hypotheses
+cat("Null Hypothesis (H0): The mean number of billionaires in the High-GDP group is equal to the mean number of billionaires in the Low-GDP group.\n")
+cat("\nAlternative Hypothesis (Ha): The mean number of billionaires in the High-GDP group is not equal to the mean number of billionaires in the Low-GDP group.\n\n")
+
+# Step 1: Shapiro-Wilk Test for Normality
+shapiro_high <- shapiro.test(high_gdp_group)
+shapiro_low <- shapiro.test(low_gdp_group)
+
+cat("Shapiro-Wilk Test for High-GDP Group:\n")
+print(shapiro_high)
+cat("\nShapiro-Wilk Test for Low-GDP Group:\n")
+print(shapiro_low)
+
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nBoth groups are normally distributed.\n")
+} else {
+  cat("\nOne or both groups are not normally distributed.\n")
+}
+
+# Perform appropriate test based on Shapiro-Wilk p-values and F-test
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nBoth groups are normally distributed. Proceeding with t-test.\n")
+  
+  # Perform t-test based on F-test result
+  if (f_test$p.value > 0.05) {
+    t_test_result <- t.test(
+      number_of_billionaires ~ gdp_group,
+      data = new_billionaires_clean,
+      var.equal = TRUE
+    )
+    cat("\nUsing independent t-test (equal variances):\n")
+  } else {
+    t_test_result <- t.test(
+      number_of_billionaires ~ gdp_group,
+      data = new_billionaires_clean,
+      var.equal = FALSE
+    )
+    cat("\nUsing Welch's t-test (unequal variances):\n")
+  }
+  print(t_test_result)
+  
+  # Critical t-Value and Decision
+  alpha <- 0.05
+  df <- t_test_result$parameter
+  t_critical <- qt(1 - alpha / 2, df) # Two-tailed test critical value
+  
+  cat("\nCalculated critical t-value: ", round(t_critical, 4), "\n")
+  
+  # Decision
+  if (abs(t_test_result$statistic) > t_critical) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+  
+} else {
+  cat("\nOne or both groups are not normally distributed. Proceeding with Mann-Whitney U test:\n")
+  
+  # Perform Mann-Whitney U Test (Wilcoxon Rank-Sum Test)
+  mw_test_result <- wilcox.test(
+    number_of_billionaires ~ gdp_group,
+    data = new_billionaires_clean,
+    exact = FALSE
+  )
+  print(mw_test_result)
+  
+  # Decision for Mann-Whitney U Test
+  if (mw_test_result$p.value < 0.05) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+}
+
+# Create the plot
+ggplot(new_billionaires_clean, aes(x = gdp_group, y = number_of_billionaires, fill = gdp_group)) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_manual(values = c("High-GDP" = "steelblue", "Low-GDP" = "skyblue")) +
+  labs(title = "Comparison of Number of Billionaires by GDP Group",
+       x = "GDP Group",
+       y = "Number of Billionaires") +
+  annotate("text", 
+           x = 1.5, 
+           y = max(new_billionaires_clean$number_of_billionaires, na.rm = TRUE), 
+           label = paste("p-value =", formatC(mw_test_result$p.value, format = "e", digits = 2), "\n", decision), 
+           size = 4, 
+           color = "red") +
+  theme_minimal()
+
+# 1.3.2 Regression Analysis
+# Regression Analysis
+# Aim: Predict Y= Number of billionaires based on gdp_country , cpi....
+# Perform Simple Linear Regression
+# Example: Simple Linear Regression
+model_simple <- lm(number_of_billionaires ~ gdp_country, data = new_billionaires_clean)
+# Summarize results
+summary(model_simple)
+
+# Visualize the regression line
+ggplot(new_billionaires_clean, aes(x = gdp_country, y = number_of_billionaires)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(title = "Simple Linear Regression", x = "GDP (Country)", y = "Number of Billionaires")
+# residuals 
+residuals <- resid(model_simple)
+# Plot residuals
+plot(new_billionaires_clean$gdp_country, residuals, main = "Residuals for Scenario 1", 
+     xlab = "Size (sq ft)", ylab = "Residuals", pch = 19)
+abline(h = 0, col = "red")
+
+# 1.4 Economic indicator cpi_country with number of billionaires
+# Sample creation and threshold on cpi_country
+# Create CPI group column based on median GDP
+median_cpi <- median(new_billionaires_clean$cpi_country, na.rm = TRUE)
+new_billionaires_clean$cpi_group <- ifelse(new_billionaires_clean$cpi_country > median_cpi, "High-CPI", "Low-CPI")
+
+# Separate the data into High-CPI and Low-CPI groups
+high_cpi_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$cpi_group == "High-CPI"]
+low_cpi_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$cpi_group == "Low-CPI"]
+
+median_cpi_summary <- new_billionaires_clean %>%
+  group_by(country) %>%
+  summarise(
+    country_cpi = sum(cpi_country, na.rm = TRUE),     
+    cpi_group = ifelse(country_cpi > median_cpi, "High-cpi", "Low-cpi") 
+  )
+
+print(median_cpi_summary)
+
+# Merge the CPI group labels (High-CPIor Low-CPI) with the new_billionaires_clean
+# Check the updated data
+table(new_billionaires_clean$cpi_group)
+
+# 1.4.1 Hypothesis Testing
+cat("Null Hypothesis (H0): The mean number of billionaires in the High-CPI group is equal to the mean number of billionaires in the Low-CPI group.\n")
+cat("\nAlternative Hypothesis (Ha): The mean number of billionaires in the High-CPI group is not equal to the mean number of billionaires in the Low-CPI group.\n\n")
+
+# Shapiro-Wilk Test for Normality
+shapiro_high <- shapiro.test(high_cpi_group)
+shapiro_low <- shapiro.test(low_cpi_group)
+
+cat("Shapiro-Wilk Test for High-CPI Group:\n")
+print(shapiro_high)
+
+cat("\nShapiro-Wilk Test for Low-CPI Group:\n")
+print(shapiro_low)
+
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nBoth groups are normally distributed.\n")
+} else {
+  cat("\nOne or both groups are not normally distributed.\n")
+}
+
+# Perform appropriate test based on Shapiro-Wilk p-values and F-test
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nBoth groups are normally distributed. Proceeding with t-test.\n")
+  
+  # Perform t-test based on F-test result
+  if (f_test$p.value > 0.05) {
+    t_test_result <- t.test(
+      number_of_billionaires ~ cpi_group,
+      data = new_billionaires_clean,
+      var.equal = TRUE
+    )
+    cat("\nUsing independent t-test (equal variances):\n")
+  } else {
+    t_test_result <- t.test(
+      number_of_billionaires ~ cpi_group,
+      data = new_billionaires_clean,
+      var.equal = FALSE
+    )
+    cat("\nUsing Welch's t-test (unequal variances):\n")
+  }
+  print(t_test_result)
+  
+  # Critical t-Value and Decision
+  alpha <- 0.05
+  df <- t_test_result$parameter
+  t_critical <- qt(1 - alpha / 2, df) # Two-tailed test critical value
+  
+  cat("\nCalculated critical t-value: ", round(t_critical, 4), "\n")
+  
+  # Decision
+  if (abs(t_test_result$statistic) > t_critical) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+  
+} else {
+  cat("\nOne or both groups are not normally distributed. Proceeding with Mann-Whitney U test:\n")
+  
+  # Perform Mann-Whitney U Test (Wilcoxon Rank-Sum Test)
+  mw_test_result <- wilcox.test(
+    number_of_billionaires ~ cpi_group,
+    data = new_billionaires_clean,
+    exact = FALSE
+  )
+  print(mw_test_result)
+  
+  # Decision for Mann-Whitney U Test
+  if (mw_test_result$p.value < 0.05) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+}
+
+# Create the plot
+ggplot(new_billionaires_clean, aes(x = cpi_group, y = number_of_billionaires, fill = cpi_group)) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_manual(values = c("High-CPI" = "steelblue", "Low-CPI" = "skyblue")) +
+  labs(title = "Comparison of Number of Billionaires by CPI Group",
+       x = "CPI Group",
+       y = "Number of Billionaires") +
+  annotate("text", 
+           x = 1.4, 
+           y = max(new_billionaires_clean$number_of_billionaires, na.rm = TRUE), 
+           label = paste("p-value =", round(mw_test_result$p.value,5), "\n", decision), 
+           size = 4, 
+           color = "red") +
+  theme_minimal()
+
+# Regression Analysis
+# Aim: Predict Y= Number of billionaires based on gdp_country , cpi....
+# Perform Simple Linear Regression
+# Example: Simple Linear Regression
+model_simple <- lm(number_of_billionaires ~ cpi_country, data = new_billionaires_clean)
+# Summarize results
+summary(model_simple)
+
+# Visualize the regression line
+ggplot(new_billionaires_clean, aes(x = cpi_country, y = number_of_billionaires)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(title = "Simple Linear Regression CPI vs Numbers of Billionaires", x = "CPI (Country)", y = "Number of Billionaires")
+
+# 1.5 Economic indicator cpi_change_country with number of billionaires
+# Sample creation and threshold on cpi_change_country
+# Create CPI-change group column based on median CPI-change
+median_cpi_change_country <- median(new_billionaires_clean$cpi_change_country, na.rm = TRUE)
+new_billionaires_clean$cpi_change_country_group <- ifelse(new_billionaires_clean$cpi_change_country > median_cpi_change_country, "High-CPI-change", "Low-CPI-change")
+
+# Separate the data into High-CPI and Low-CPI groups
+high_cpi_change_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$cpi_change_country_group == "High-CPI-change"]
+low_cpi_change_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$cpi_change_country_group == "Low-CPI-change"]
+
+median_cpi_change_summary <- new_billionaires_clean %>%
+  group_by(country) %>%
+  summarise(
+    country_cpi_change = sum(cpi_change_country, na.rm = TRUE),     
+    cpi_change_country_group = ifelse(country_cpi_change > median_cpi_change_country, "High-CPI_change", "Low-CPI-change") 
+  )
+
+print(median_cpi_change_summary)
+
+# Merge the tax group labels (High-cpi-changeor Low-cpi-change) with the new_billionaires_clean
+table(new_billionaires_clean$cpi_change_country_group)
+
+# 1.5.1 Hypothesis Testing
+cat("Null Hypothesis (H0): The mean number of billionaires in the High-cpi-change group is equal to the mean number of billionaires in the Low-cpi-change group.\n")
+cat("\nAlternative Hypothesis (Ha): The mean number of billionaires in the High-cpi-change group is not equal to the mean number of billionaires in the Low-cpi-change group.\n\n")
+
+# Shapiro-Wilk Test for Normality
+shapiro_high <- shapiro.test(high_cpi_change_group)
+shapiro_low <- shapiro.test(low_cpi_change_group)
+print("Shapiro-Wilk Test for High CPI-change Group:\n")
+shapiro_high
+print("Shapiro-Wilk Test for Low CPI-change Group:\n")
+shapiro_low
+
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nBoth groups are normally distributed.\n")
+} else {
+  cat("\nOne or both groups are not normally distributed.\n")
+}
+
+# Perform appropriate test based on Shapiro-Wilk p-values and F-test
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nBoth groups are normally distributed. Proceeding with t-test.\n")
+  
+  # Perform t-test based on F-test result
+  if (f_test$p.value > 0.05) {
+    t_test_result <- t.test(
+      number_of_billionaires ~ cpi_change_country_group,
+      data = new_billionaires_clean,
+      var.equal = TRUE
+    )
+    cat("\nUsing independent t-test (equal variances):\n")
+  } else {
+    t_test_result <- t.test(
+      number_of_billionaires ~ cpi_change_country_group,
+      data = new_billionaires_clean,
+      var.equal = FALSE
+    )
+    cat("\nUsing Welch's t-test (unequal variances):\n")
+  }
+  print(t_test_result)
+  
+  # Critical t-Value and Decision
+  alpha <- 0.05
+  df <- t_test_result$parameter
+  t_critical <- qt(1 - alpha / 2, df) # Two-tailed test critical value
+  
+  cat("\nCalculated critical t-value: ", round(t_critical, 4), "\n")
+  
+  # Decision
+  if (abs(t_test_result$statistic) > t_critical) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+  
+} else {
+  cat("\nOne or both groups are not normally distributed. Proceeding with Mann-Whitney U test:\n")
+  
+  # Perform Mann-Whitney U Test (Wilcoxon Rank-Sum Test)
+  mw_test_result <- wilcox.test(
+    number_of_billionaires ~ cpi_change_country_group,
+    data = new_billionaires_clean,
+    exact = FALSE
+  )
+  print(mw_test_result)
+  
+  # Decision for Mann-Whitney U Test
+  if (mw_test_result$p.value < 0.05) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+}
+
+# Create the plot
+ggplot(new_billionaires_clean, aes(x = cpi_change_country_group, y = number_of_billionaires, fill = cpi_change_country_group)) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_manual(values = c("High-CPI-change" = "steelblue", "Low-CPI-change" = "skyblue")) +
+  labs(title = "Comparison of Number of Billionaires by CPI-change Group",
+       x = "CPI-Change Group",
+       y = "Number of Billionaires") +
+  annotate("text", 
+           x = 1.2, 
+           y = max(new_billionaires_clean$number_of_billionaires, na.rm = TRUE), 
+           label = paste("p-value =", round(mw_test_result$p.value,5) , "\n", decision), 
+           size = 4, 
+           color = "red") +
+  theme_minimal()
+
+# Regression Analysis
+# Aim: Predict Y= Number of billionaires based on gdp_country , cpi....
+# Perform Simple Linear Regression
+# Example: Simple Linear Regression
+model_simple <- lm(number_of_billionaires ~ cpi_change_country, data = new_billionaires_clean)
+# Summarize results
+summary(model_simple)
+
+# Visualize the regression line
+ggplot(new_billionaires_clean, aes(x = cpi_change_country, y = number_of_billionaires)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(title = "Simple Linear Regression CPI change vs Number of Billionaires", x = "CPI-change (Country)", y = "Number of Billionaires")
+
+# residuals 
+residuals <- resid(model_simple)
+# Plot residuals
+plot(new_billionaires_clean$cpi_change_country, residuals, main = "Residuals for Scenario 3", 
+     xlab = "Size (sq ft)", ylab = "Residuals", pch = 19)
+abline(h = 0, col = "red")
+
+# 1.6 Economic indicator total_tax_rate_country with number of billionaires
+# Sample creation and threshold on total_tax_rate_country
+# Create total tax rate group column based on median total tax rate
+median_total_tax_rate_country <- median(new_billionaires_clean$total_tax_rate_country, na.rm = TRUE)
+new_billionaires_clean$total_tax_rate_country_group <- ifelse(new_billionaires_clean$total_tax_rate_country > median_total_tax_rate_country, "High TTR", "Low TTR")
+
+# Separate the data into High-CPI and Low-CPI groups
+high_TTR_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$total_tax_rate_country_group == "High TTR"]
+low_TTR_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$total_tax_rate_country_group == "Low TTR"]
+
+
+median_total_tax_rate_summary <- new_billionaires_clean %>%
+  group_by(country) %>%
+  summarise(
+    country_total_tax_rate = sum(total_tax_rate_country, na.rm = TRUE),     
+    total_tax_rate_country_group = ifelse(country_total_tax_rate > median_total_tax_rate_country, "High TTR", "Low TTR") 
+  )
+
+print(median_total_tax_rate_summary)
+
+# Merge the tax group labels (High TTRor Low TTR) with the new_billionaires_clean
+# Check the updated data
+table(new_billionaires_clean$total_tax_rate_country_group)
+
+# 1.5.1 Hypothesis Testing
+cat("Null Hypothesis (H0): The mean number of billionaires in the High TTR group is equal to the mean number of billionaires in the Low TTR group.\n")
+cat("\nAlternative Hypothesis (Ha): The mean number of billionaires in the High TTR group is not equal to the mean number of billionaires in the Low TTR group.\n\n")
+
+# Shapiro-Wilk Test for Normality
+shapiro_high <- shapiro.test(high_TTR_group)
+shapiro_low <- shapiro.test(low_TTR_group)
+print("Shapiro-Wilk Test for High Total Tax Rate Group:\n")
+shapiro_high
+print("Shapiro-Wilk Test for Low Total Tax Rate Group:\n")
+shapiro_low
+
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nBoth groups are normally distributed.\n")
+} else {
+  cat("\nOne or both groups are not normally distributed.\n")
+}
+
+# Perform appropriate test based on Shapiro-Wilk p-values and F-test
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nBoth groups are normally distributed. Proceeding with t-test.\n")
+  
+  # Perform t-test based on F-test result
+  if (f_test$p.value > 0.05) {
+    t_test_result <- t.test(
+      number_of_billionaires ~ total_tax_rate_country_group,
+      data = new_billionaires_clean,
+      var.equal = TRUE
+    )
+    cat("\nUsing independent t-test (equal variances):\n")
+  } else {
+    t_test_result <- t.test(
+      number_of_billionaires ~ total_tax_rate_country_group,
+      data = new_billionaires_clean,
+      var.equal = FALSE
+    )
+    cat("\nUsing Welch's t-test (unequal variances):\n")
+  }
+  print(t_test_result)
+  
+  # Critical t-Value and Decision
+  alpha <- 0.05
+  df <- t_test_result$parameter
+  t_critical <- qt(1 - alpha / 2, df) # Two-tailed test critical value
+  
+  cat("\nCalculated critical t-value: ", round(t_critical, 4), "\n")
+  
+  # Decision
+  if (abs(t_test_result$statistic) > t_critical) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+  
+} else {
+  cat("\nOne or both groups are not normally distributed. Proceeding with Mann-Whitney U test:\n")
+  
+  # Perform Mann-Whitney U Test (Wilcoxon Rank-Sum Test)
+  mw_test_result <- wilcox.test(
+    number_of_billionaires ~ total_tax_rate_country_group,
+    data = new_billionaires_clean,
+    exact = FALSE
+  )
+  print(mw_test_result)
+  
+  # Decision for Mann-Whitney U Test
+  if (mw_test_result$p.value < 0.05) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+}
+
+# Create the plot
+ggplot(new_billionaires_clean, aes(x = total_tax_rate_country_group, y = number_of_billionaires, fill = total_tax_rate_country_group)) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_manual(values = c("High TTR" = "steelblue", "Low TTR" = "skyblue")) +
+  labs(title = "Comparison of Number of Billionaires by Total Tax Rate (TTR) Group",
+       x = "TTR Group",
+       y = "Number of Billionaires") +
+  annotate("text", 
+           x = 2, 
+           y = max(new_billionaires_clean$number_of_billionaires, na.rm = TRUE), 
+           label = paste("p-value =", round(mw_test_result$p.value,5) , "\n", decision), 
+           size = 4, 
+           color = "red") +
+  theme_minimal()
+
+# Section 2: Socioeconomic Indicators on Billionaire Distribution
+# 2.1 Descriptive Statistics
+# Calculate Summary Statistics
+# List of socioeconomic indicators to analyze
+socioeconomic_indicators <- c("population_country", "life_expectancy_country")
+
+# Summary table for mean, median, and variance
+summary_stats <- new_billionaires_clean %>%
+  summarise(across(all_of(socioeconomic_indicators), 
+                   list(mean = ~ mean(. , na.rm = TRUE),
+                        median = ~ median(. , na.rm = TRUE),
+                        variance = ~ var(. , na.rm = TRUE)
+                   ), .names = "{col}_{fn}")) 
+
+# Print the summary table
+print(summary_stats)
+
+# Load required libraries
+library(ggplot2)
+library(patchwork)
+
+hist_population <- ggplot(new_billionaires_clean, aes(x = population_country)) +
+  geom_histogram(fill = "purple", color = "black", bins = 30) +
+  labs(title = "Population (Country)", x = "Population", y = "Frequency") +
+  theme_minimal()
+
+hist_life_expectancy <- ggplot(new_billionaires_clean, aes(x = life_expectancy_country)) +
+  geom_histogram(fill = "pink", color = "black", bins = 30) +
+  labs(title = "Life Expectancy (Country)", x = "Life Expectancy (%)", y = "Frequency") +
+  theme_minimal()
+
+
+# Combine all histograms in one subplot using patchwork
+(hist_population| hist_life_expectancy)
+
+# 2.2 Correlation Analysis
+# Extract data only for the selected indicators
+socioeconomic_indicators <- c("number_of_billionaires", "population_country", "life_expectancy_country")
+data2 <- new_billionaires_clean[socioeconomic_indicators]
+
+# Covariance Matrix
+cov_matrix <- cov(data2, use = "complete.obs")
+print("Covariance Matrix:")
+print(cov_matrix)
+
+# Pearson Correlation
+pearson_corr <- cor(data2, method = "pearson", use = "complete.obs")
+print("Pearson Correlation Matrix:")
+print(pearson_corr)
+
+# Spearman Correlation
+spearman_corr <- cor(data2, method = "spearman", use = "complete.obs")
+print("Spearman Correlation Matrix:")
+print(spearman_corr)
+
+# Visualisation for Summary
+# Convert matrices to long format for ggplot2 heatmap
+pearson_long <- melt(pearson_corr)
+spearman_long <- melt(spearman_corr)
+
+# Function to create a heatmap with text annotations
+create_heatmap <- function(data_long, title) {
+  ggplot(data_long, aes(Var1, Var2, fill = value)) +
+    geom_tile(color = "white") +
+    geom_text(aes(label = sprintf("%.2f", value)), color = "black", size = 3) +
+    scale_fill_gradient2(low = "pink", high = "purple", mid = "white", 
+                         midpoint = 0, limit = c(-1, 1), space = "Lab", 
+                         name = "Correlation") +
+    labs(title = title, x = "", y = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+# Pearson Correlation Matrix Heatmap
+pearson_plot <- create_heatmap(pearson_long, "Pearson Correlation Heatmap")
+print(pearson_plot)
+
+# Spearman Correlation Matrix Heatmap
+spearman_plot <- create_heatmap(spearman_long, "Spearman Correlation Heatmap")
+print(spearman_plot)
+
+# 2.3 Socioeconomic indicator population_country with number of billionaires
+# Sample creation and threshold on population
+median_population <- median(new_billionaires_clean$population_country, na.rm = TRUE)
+new_billionaires_clean$population_group <- ifelse(new_billionaires_clean$population_country > median_population, "High-Population", "Low-Population")
+
+high_population_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$population_group == "High-Population"]
+low_population_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$population_group == "Low-Population"]
+
+median_population_summary <- new_billionaires_clean %>%
+  group_by(country) %>%
+  summarise(
+    country_population = sum(population_country, na.rm = TRUE),  
+    population_group = ifelse(country_population > median_population, "High-Population", "Low-Population") 
+  )
+print(median_population_summary)
+
+# Merge the tax group labels (High-populationor Low-population) with the new_billionaires_clean
+table(new_billionaires_clean$population_group)
+
+# 2.3.1 Hypothesis Testing
+# Print the null and alternative hypotheses
+cat("Null Hypothesis (H0): The mean number of billionaires in the High-Population group is equal to the mean number of billionaires in the Low-Population group.\n")
+cat("\nAlternative Hypothesis (Ha): The mean number of billionaires in the High-Population group is not equal to the mean number of billionaires in the Low-Population group.\n\n")
+
+# Shapiro-Wilk Test for Normality
+shapiro_high <- shapiro.test(high_population_group)
+shapiro_low <- shapiro.test(low_population_group)
+
+cat("\nShapiro-Wilk Test for High-Population Group:\n")
+print(shapiro_high)
+cat("\nShapiro-Wilk Test for Low-Population Group:\n")
+print(shapiro_low)
+
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nResult: Both groups are normally distributed.\n")
+} else {
+  cat("\nResult: One or both groups are not normally distributed.\n")
+}
+
+# Perform appropriate test based on Shapiro-Wilk p-values and F-test
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nBoth groups are normally distributed. Proceeding with t-test.\n")
+  
+  # Perform t-test based on F-test result
+  if (f_test$p.value > 0.05) {
+    t_test_result <- t.test(
+      number_of_billionaires ~ population_group,
+      data = new_billionaires_clean,
+      var.equal = TRUE
+    )
+    cat("\nUsing independent t-test (equal variances):\n")
+  } else {
+    t_test_result <- t.test(
+      number_of_billionaires ~ population_group,
+      data = new_billionaires_clean,
+      var.equal = FALSE
+    )
+    cat("\nUsing Welch's t-test (unequal variances):\n")
+  }
+  print(t_test_result)
+  
+  # Critical t-Value and Decision
+  alpha <- 0.05
+  df <- t_test_result$parameter
+  t_critical <- qt(1 - alpha / 2, df) # Two-tailed test critical value
+  
+  cat("\nCalculated critical t-value: ", round(t_critical, 4), "\n")
+  
+  # Decision
+  if (abs(t_test_result$statistic) > t_critical) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+  
+} else {
+  cat("\nOne or both groups are not normally distributed. Proceeding with Mann-Whitney U test:\n")
+  
+  # Perform Mann-Whitney U Test (Wilcoxon Rank-Sum Test)
+  mw_test_result <- wilcox.test(
+    number_of_billionaires ~ population_group,
+    data = new_billionaires_clean,
+    exact = FALSE
+  )
+  print(mw_test_result)
+  
+  # Decision for Mann-Whitney U Test
+  if (mw_test_result$p.value < 0.05) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+}
+
+# Create the plot
+ggplot(new_billionaires_clean, aes(x = population_group, y = number_of_billionaires, fill = population_group)) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_manual(values = c("High-Population" = "steelblue", "Low-Population" = "skyblue")) +
+  labs(title = "Comparison of Number of Billionaires by Population Group",
+       x = "Population Group",
+       y = "Number of Billionaires") +
+  annotate("text", 
+           x = 1.5, 
+           y = max(new_billionaires_clean$number_of_billionaires, na.rm = TRUE), 
+           label = paste("p-value =", formatC(mw_test_result$p.value, format = "e", digits = 2), "\n", decision), 
+           size = 4, 
+           color = "red") +
+  theme_minimal()
+
+# 2.4 Socioeconomic indicator life_expectancy_country with number of billionaires
+# Sample creation and threshold on life_expectancy_country
+median_life <- median(new_billionaires_clean$life_expectancy_country, na.rm = TRUE)
+new_billionaires_clean$life_group <- ifelse(new_billionaires_clean$life_expectancy_country > median_life, "High-Life Expectancy", "Low-Life Expectancy")
+
+high_life_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$life_group == "High-Life Expectancy"]
+low_life_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$life_group == "Low-Life Expectancy"]
+
+median_life_summary <- new_billionaires_clean %>%
+  group_by(country) %>%
+  summarise(
+    country_life = sum(life_expectancy_country, na.rm = TRUE),  
+    life_group = ifelse(country_life > median_life, "High-Life Expectancy", "Low-Life Expectancy") 
+  )
+
+
+print(median_life_summary)
+
+# Merge the tax group labels (High-life expectancyor Low-life expectancy) with the new_billionaries_clean
+table(new_billionaires_clean$life_group)
+
+# 2.4.1 Hypothesis Testing
+# Print the null and alternative hypotheses
+cat("Null Hypothesis (H0): The mean number of billionaires in the High-Life-Expectancy group is equal to the mean number of billionaires in the Low-Life-Expectancy group.\n")
+cat("\nAlternative Hypothesis (Ha): The mean number of billionaires in the High-Life-Expectancy group is not equal to the mean number of billionaires in the Low-Life-Expectancy group.\n\n")
+
+# Shapiro-Wilk Test for Normality
+shapiro_high <- shapiro.test(high_life_group)
+shapiro_low <- shapiro.test(low_life_group)
+
+cat("\nShapiro-Wilk Test for High-Life-Expectancy Group:\n")
+print(shapiro_high)
+cat("\nShapiro-Wilk Test for Low-Life-Expectancy Group:\n")
+print(shapiro_low)
+
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nResult: Both groups are normally distributed.\n")
+} else {
+  cat("\nResult: One or both groups are not normally distributed.\n")
+}
+
+# Perform appropriate test based on Shapiro-Wilk p-values and F-test
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nBoth groups are normally distributed. Proceeding with t-test.\n")
+  
+  # Perform t-test based on F-test result
+  if (f_test$p.value > 0.05) {
+    t_test_result <- t.test(
+      number_of_billionaires ~ life_group,
+      data = new_billionaires_clean,
+      var.equal = TRUE
+    )
+    cat("\nUsing independent t-test (equal variances):\n")
+  } else {
+    t_test_result <- t.test(
+      number_of_billionaires ~ life_group,
+      data = new_billionaires_clean,
+      var.equal = FALSE
+    )
+    cat("\nUsing Welch's t-test (unequal variances):\n")
+  }
+  print(t_test_result)
+  
+  # Critical t-Value and Decision
+  alpha <- 0.05
+  df <- t_test_result$parameter
+  t_critical <- qt(1 - alpha / 2, df) # Two-tailed test critical value
+  
+  cat("\nCalculated critical t-value: ", round(t_critical, 4), "\n")
+  
+  # Decision
+  if (abs(t_test_result$statistic) > t_critical) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+  
+} else {
+  cat("\nOne or both groups are not normally distributed. Proceeding with Mann-Whitney U test:\n")
+  
+  # Perform Mann-Whitney U Test (Wilcoxon Rank-Sum Test)
+  mw_test_result <- wilcox.test(
+    number_of_billionaires ~ life_group,
+    data = new_billionaires_clean,
+    exact = FALSE
+  )
+  print(mw_test_result)
+  
+  # Decision for Mann-Whitney U Test
+  if (mw_test_result$p.value < 0.05) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+}
+
+# Create the plot
+ggplot(new_billionaires_clean, aes(x = life_group, y = number_of_billionaires, fill = life_group)) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_manual(values = c("High-Life Expectancy" = "steelblue", "Low-Life Expectancy" = "skyblue")) +
+  labs(title = "Comparison of Number of Billionaires by Life Expectancy Group",
+       x = "Life Expectancy Group",
+       y = "Number of Billionaires") +
+  annotate("text", 
+           x = 1.5, 
+           y = max(new_billionaires_clean$number_of_billionaires, na.rm = TRUE), 
+           label = paste("p-value =", formatC(mw_test_result$p.value, format = "e", digits = 2), "\n", decision), 
+           size = 4, 
+           color = "red") +
+  theme_minimal()
+
+# 2.4.2 Regression Analysis
+# Regression Analysis
+# Example: Simple Linear Regression
+model_simple <- lm(number_of_billionaires ~ life_expectancy_country, data = new_billionaires_clean)
+# Summarize results
+summary(model_simple)
+
+# Visualize the regression line
+ggplot(new_billionaires_clean, aes(x = life_expectancy_country, y = number_of_billionaires)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(title = "Simple Linear Regression", x = "Life Expectancy (Country)", y = "Number of Billionaires")
+
+# residuals 
+residuals <- resid(model_simple)
+# Plot residuals
+plot(new_billionaires_clean$life_expectancy_country, residuals, main = "Plot of Residuals", 
+     xlab = "yhat", ylab = "Residuals", pch = 19)
+abline(h = 0, col = "red")
+
+# Section 3: Industry Indicators on Billionaire Distribution
+# 3.1 Descriptive Statistics
+# Calculate Summary Statistics
+# List of socioeconomic indicators to analyze
+industry_indicators <- c("industry_diversity")
+
+# Summary table for mean, median, and variance
+summary_stats <- new_billionaires_clean %>%
+  summarise(across(all_of(industry_indicators), 
+                   list(mean = ~ mean(. , na.rm = TRUE),
+                        median = ~ median(. , na.rm = TRUE),
+                        variance = ~ var(. , na.rm = TRUE)
+                   ), .names = "{col}_{fn}")) 
+
+# Print the summary table
+print(summary_stats)
+
+hist_industry <- ggplot(new_billionaires_clean, aes(x = industry_diversity)) +
+  geom_histogram(fill = "purple", color = "black", bins = 30) +
+  labs(title = "Industry Types (Country)", x = "Industry Types", y = "Frequency") +
+  theme_minimal()
+
+# Combine all histograms in one subplot using patchwork
+(hist_industry)
+
+industry_distribution <- new_billionaires_clean %>%
+  separate_rows(concatenated_industries, sep = ",") %>%  # Split concatenated industries
+  group_by(concatenated_industries) %>%
+  summarise(total_billionaires = sum(number_of_billionaires, na.rm = TRUE)) %>%
+  arrange(desc(total_billionaires))
+
+# Create the treemap
+treemap(
+  industry_distribution,
+  index = "concatenated_industries",   # The industry names
+  vSize = "total_billionaires",       # The number of billionaires as block size
+  title = "Distribution of Billionaire by Industry",
+  palette = "Set3"                    # Use a color palette for differentiation
+)
+
+# 3.2 Correlation Analysis
+# Extract data only for the selected indicators
+
+industry_indicators <- c("number_of_billionaires", "industry_diversity")
+data3 <- new_billionaires_clean[industry_indicators]
+
+# Covariance Matrix
+# Compute the covariance matrix
+cov_matrix <- cov(data3, use = "complete.obs")
+
+# Print the covariance matrix
+print("Covariance Matrix:")
+print(cov_matrix)
+
+# Pearson Correlation
+pearson_corr <- cor(data3, method = "pearson", use = "complete.obs")
+print("Pearson Correlation Matrix:")
+print(pearson_corr)
+
+# Spearman Correlation
+spearman_corr <- cor(data3, method = "spearman", use = "complete.obs")
+print("Spearman Correlation Matrix:")
+print(spearman_corr)
+
+# Visualisation for Summary
+# Convert matrices to long format for ggplot2 heatmap
+pearson_long <- melt(pearson_corr)
+spearman_long <- melt(spearman_corr)
+
+# Function to create a heatmap with text annotations
+create_heatmap <- function(data_long, title) {
+  ggplot(data_long, aes(Var1, Var2, fill = value)) +
+    geom_tile(color = "white") +
+    geom_text(aes(label = sprintf("%.2f", value)), color = "black", size = 3) +
+    scale_fill_gradient2(low = "pink", high = "purple", mid = "white", 
+                         midpoint = 0, limit = c(-1, 1), space = "Lab", 
+                         name = "Correlation") +
+    labs(title = title, x = "", y = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+# Pearson Correlation Matrix Heatmap
+pearson_plot <- create_heatmap(pearson_long, "Pearson Correlation Heatmap")
+print(pearson_plot)
+
+# Spearman Correlation Matrix Heatmap
+spearman_plot <- create_heatmap(spearman_long, "Spearman Correlation Heatmap")
+print(spearman_plot)
+
+# 3.3 Industry indicator industry_diversity with number of billionaires
+# Sample creation and threshold on gdp_country
+median_diversity <- median(new_billionaires_clean$industry_diversity, na.rm = TRUE)
+new_billionaires_clean$diversity_group <- ifelse(new_billionaires_clean$industry_diversity > median_diversity, "High-Diversity", "Low-Diversity")
+
+high_diversity_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$diversity_group == "High-Diversity"]
+low_diversity_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$diversity_group == "Low-Diversity"]
+
+median_diversity_summary <- new_billionaires_clean %>%
+  group_by(country) %>%
+  summarise(
+    diversity_industry = sum(industry_diversity, na.rm = TRUE),  
+    diversity_group = ifelse(diversity_industry > median_diversity, "High-Diversity", "Low-Diversity") 
+  )
+
+
+print(median_diversity_summary)
+
+# Merge the Diversity group labels (High-Diversity or Low-Diversity) with the new_billionaires_clean
+table(new_billionaires_clean$diversity_group)
+
+# 3.3.1 Hypothesis Testing
+# Print the null and alternative hypotheses
+cat("Null Hypothesis (H0): The mean number of billionaires in the High-Diversity group is equal to the mean number of billionaires in the Low-Diversity group.\n")
+cat("\nAlternative Hypothesis (Ha): The mean number of billionaires in the High-Diversity group is not equal to the mean number of billionaires in the Low-Diversity group.\n\n")
+
+# Step 1: Shapiro-Wilk Test for Normality
+shapiro_high <- shapiro.test(high_diversity_group)
+shapiro_low <- shapiro.test(low_diversity_group)
+
+cat("Shapiro-Wilk Test for High-Diversity Group:\n")
+print(shapiro_high)
+
+cat("\nShapiro-Wilk Test for Low-Diversity Group:\n")
+print(shapiro_low)
+
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nBoth groups are normally distributed.\n")
+} else {
+  cat("\nOne or both groups are not normally distributed.\n")
+}
+
+# Perform appropriate test based on Shapiro-Wilk p-values and F-test
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nBoth groups are normally distributed. Proceeding with t-test.\n")
+  
+  # Perform t-test based on F-test result
+  if (f_test$p.value > 0.05) {
+    test_result <- t.test(
+      number_of_billionaires ~ diversity_group,
+      data = new_billionaires_clean,
+      var.equal = TRUE
+    )
+    cat("\nUsing independent t-test (equal variances):\n")
+  } else {
+    test_result <- t.test(
+      number_of_billionaires ~ diversity_group,
+      data = new_billionaires_clean,
+      var.equal = FALSE
+    )
+    cat("\nUsing Welch's t-test (unequal variances):\n")
+  }
+  print(test_result)
+  
+  # Critical t-Value and Decision
+  alpha <- 0.05
+  df <- test_result$parameter
+  t_critical <- qt(1 - alpha / 2, df) # Two-tailed test critical value
+  
+  cat("\nCalculated critical t-value: ", round(t_critical, 4), "\n")
+  
+  # Decision
+  if (abs(test_result$statistic) > t_critical) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+  
+} else {
+  cat("\nOne or both groups are not normally distributed. Proceeding with Mann-Whitney U test:\n")
+  
+  # Perform Mann-Whitney U Test (Wilcoxon Rank-Sum Test)
+  test_result <- wilcox.test(
+    number_of_billionaires ~ diversity_group,
+    data = new_billionaires_clean,
+    exact = FALSE
+  )
+  print(test_result)
+  
+  # Decision for Mann-Whitney U Test
+  if (test_result$p.value < 0.05) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+}
+
+# Extract the p-value and decision from the t-test result
+p_value <- round(test_result$p.value, 6) # Round the p-value to 4 decimal places
+decision_text <- ifelse(decision == "Reject the null hypothesis H_0", "Reject Ho", "Fail to Reject Ho")
+
+# Create the plot
+ggplot(new_billionaires_clean, aes(x = diversity_group, y = number_of_billionaires, fill = diversity_group)) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_manual(values = c("High-Diversity" = "steelblue", "Low-Diversity" = "skyblue")) +
+  labs(title = "Comparison of Number of Billionaires by Industry Diversity Group",
+       x = "Industry Diversity Group",
+       y = "Number of Billionaires") +
+  annotate("text", 
+           x = 1.5, 
+           y = max(new_billionaires_clean$number_of_billionaires, na.rm = TRUE), 
+           label = paste("p-value =", p_value, "\n", decision_text), 
+           size = 4, 
+           color = "red") +
+  theme_minimal()
+
+
+# 3.3.2 Regression Analysis
+# Regression Analysis
+model_simple <- lm(number_of_billionaires ~ industry_diversity, data = new_billionaires_clean)
+# Summarize results
+summary(model_simple)
+
+# Visualize the regression line
+ggplot(new_billionaires_clean, aes(x = industry_diversity, y = number_of_billionaires)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(title = "Simple Linear Regression", x = "Industry Diversity (Country)", y = "Number of Billionaires")
+
+# residuals 
+residuals <- resid(model_simple)
+# Plot residuals
+plot(new_billionaires_clean$gdp_country, residuals, main = "Residuals Plot", 
+     xlab = "yhat", ylab = "Residuals", pch = 19)
+abline(h = 0, col = "red")
+
+# Section 4: Education Indicators on Billionaire Distribution
+# 4.1 Descriptive Statistics
+# Calculate Summary Statistics
+education_indicators <- c("gross_tertiary_education_enrollment", "gross_primary_education_enrollment_country")
+
+# Summary table for mean, median, and variance
+summary_stats <- new_billionaires_clean %>%
+  summarise(across(all_of(education_indicators), 
+                   list(mean = ~ mean(. , na.rm = TRUE),
+                        median = ~ median(. , na.rm = TRUE),
+                        variance = ~ var(. , na.rm = TRUE)
+                   ), .names = "{col}_{fn}")) 
+
+# Print the summary table
+print(summary_stats)
+
+# Create individual histograms for each indicator
+hist_ter <- ggplot(new_billionaires_clean, aes(x = gross_tertiary_education_enrollment)) +
+  geom_histogram(fill = "skyblue", color = "black", bins = 30) +
+  labs(title = "Gross tertiary education enrollment", x = "gross_tertiary_education_enrollment", y = "Frequency") +
+  theme_minimal()
+
+hist_pri <- ggplot(new_billionaires_clean, aes(x = gross_primary_education_enrollment_country)) +
+  geom_histogram(fill = "lightgreen", color = "black", bins = 30) +
+  labs(title = "Gross Primary education enrollment", x = "gross_primary_education_enrollment_country", y = "Frequency") +
+  theme_minimal()
+
+# Combine all histograms in one subplot using patchwork
+(hist_ter | hist_pri ) 
+
+# 4.2 Correlation Analysis
+indicators <- c("number_of_billionaires","gross_tertiary_education_enrollment", "gross_primary_education_enrollment_country")
+
+data4 <- new_billionaires_clean[indicators]
+
+# Covariance Matrix
+cov_matrix <- cov(data4, use = "complete.obs")
+print("Covariance Matrix:")
+print(cov_matrix)
+
+# Pearson Correlation
+pearson_corr <- cor(data4, method = "pearson", use = "complete.obs")
+print("Pearson Correlation Matrix:")
+print(pearson_corr)
+
+# Spearman Correlation
+spearman_corr <- cor(data4, method = "spearman", use = "complete.obs")
+print("Spearman Correlation Matrix:")
+print(spearman_corr)
+
+# Visualisation for Summary
+# Convert matrices to long format for ggplot2 heatmap
+pearson_long <- melt(pearson_corr)
+spearman_long <- melt(spearman_corr)
+
+# Function to create a heatmap with text annotations
+create_heatmap <- function(data_long, title) {
+  ggplot(data_long, aes(Var1, Var2, fill = value)) +
+    geom_tile(color = "white") +
+    geom_text(aes(label = sprintf("%.2f", value)), color = "black", size = 3) +
+    scale_fill_gradient2(low = "pink", high = "purple", mid = "white", 
+                         midpoint = 0, limit = c(-1, 1), space = "Lab", 
+                         name = "Correlation") +
+    labs(title = title, x = "", y = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+# Pearson Correlation Matrix Heatmap
+pearson_plot <- create_heatmap(pearson_long, "Pearson Correlation Heatmap")
+print(pearson_plot)
+
+# Spearman Correlation Matrix Heatmap
+spearman_plot <- create_heatmap(spearman_long, "Spearman Correlation Heatmap")
+print(spearman_plot)
+
+# 4.3 Education indicator gross_tertiary_education_enrollment with number of billionaires
+# Sample creation and threshold on gross_tertiary_education
+# Create tertiary enrollment group column based on median tertiary enrollment
+median_ter_enroll <- median(new_billionaires_clean$gross_tertiary_education_enrollment, na.rm = TRUE)
+new_billionaires_clean$ter_enroll_group <- ifelse(new_billionaires_clean$gross_tertiary_education_enrollment > median_ter_enroll, "High_Tertiary_Enrollment", "Low_Tertiary_Enrollment")
+
+# Separate the data into High-CPI and Low-CPI groups
+high_ter_enroll_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$ter_enroll_group == "High_Tertiary_Enrollment"]
+low_ter_enroll_group <- new_billionaires_clean$number_of_billionaires[new_billionaires_clean$ter_enroll_group == "Low_Tertiary_Enrollment"]
+
+median_ter_enroll_summary <- new_billionaires_clean %>%
+  group_by(country) %>%
+  summarise(
+    country_gross_tertiary_education_enrollment = sum(gross_tertiary_education_enrollment, na.rm = TRUE),     
+    ter_enroll_group = ifelse(country_gross_tertiary_education_enrollment > median_ter_enroll, "High_Tertiary_Enrollment", "Low_Tertiary_Enrollment") 
+  )
+
+print(median_ter_enroll_summary)
+
+# Merge the education group labels (High-tertiary enrollment or Low-tertiary enrollment) with the new_billionaires_clean
+table(new_billionaires_clean$ter_enroll_group)
+
+# 4.4.1 Hypothesis Testing
+# Print the null and alternative hypotheses
+cat("Null Hypothesis (H0): The mean number of billionaires in the High-Tertiary-Enrollment group is equal to the mean number of billionaires in the Low-Tertiary-Enrollment group.\n")
+cat("\nAlternative Hypothesis (Ha): The mean number of billionaires in the High-Tertiary-Enrollment group is not equal to the mean number of billionaires in the Low-Tertiary-Enrollment group.\n\n")
+
+# Shapiro-Wilk Test for Normality
+shapiro_high <- shapiro.test(high_ter_enroll_group)
+shapiro_low <- shapiro.test(low_ter_enroll_group)
+cat("Shapiro-Wilk Test for High Tertiaty Education Enrollment Group: \n")
+shapiro_high
+cat("Shapiro-Wilk Test for Low Tertiaty Education Enrollment Group: \n")
+shapiro_low
+
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nBoth groups are normally distributed.\n")
+} else {
+  cat("\nOne or both groups are not normally distributed.\n")
+}
+
+# Perform appropriate test based on Shapiro-Wilk p-values and F-test
+if (shapiro_high$p.value > 0.05 & shapiro_low$p.value > 0.05) {
+  cat("\nBoth groups are normally distributed. Proceeding with t-test.\n")
+  
+  # Perform t-test based on F-test result
+  if (f_test$p.value > 0.05) {
+    t_test_result <- t.test(
+      number_of_billionaires ~ ter_enroll_group,
+      data = new_billionaires_clean,
+      var.equal = TRUE
+    )
+    cat("\nUsing independent t-test (equal variances):\n")
+  } else {
+    t_test_result <- t.test(
+      number_of_billionaires ~ ter_enroll_group,
+      data = new_billionaires_clean,
+      var.equal = FALSE
+    )
+    cat("\nUsing Welch's t-test (unequal variances):\n")
+  }
+  print(t_test_result)
+  
+  # Critical t-Value and Decision
+  alpha <- 0.05
+  df <- t_test_result$parameter
+  t_critical <- qt(1 - alpha / 2, df) # Two-tailed test critical value
+  
+  cat("\nCalculated critical t-value: ", round(t_critical, 4), "\n")
+  
+  # Decision
+  if (abs(t_test_result$statistic) > t_critical) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+  
+} else {
+  cat("\nOne or both groups are not normally distributed. Proceeding with Mann-Whitney U test:\n")
+  
+  # Perform Mann-Whitney U Test (Wilcoxon Rank-Sum Test)
+  mw_test_result <- wilcox.test(
+    number_of_billionaires ~ ter_enroll_group,
+    data = new_billionaires_clean,
+    exact = FALSE
+  )
+  print(mw_test_result)
+  
+  # Decision for Mann-Whitney U Test
+  if (mw_test_result$p.value < 0.05) {
+    decision <- "Reject the null hypothesis H_0"
+  } else {
+    decision <- "Fail to reject the null hypothesis H_0"
+  }
+  cat("\nDecision: ", decision)
+}
+
+# Create the plot
+ggplot(new_billionaires_clean, aes(x = ter_enroll_group, y = number_of_billionaires, fill = ter_enroll_group)) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_manual(values = c("High_Tertiary_Enrollment" = "steelblue", "Low_Tertiary_Enrollment" = "skyblue")) +
+  labs(title = "Comparison of Number of Billionaires by Tertiary Enrollment Group",
+       x = "Tertiary Enrollment Group",
+       y = "Number of Billionaires") +
+  annotate("text", 
+           x = 1.8, 
+           y = max(new_billionaires_clean$number_of_billionaires, na.rm = TRUE), 
+           label = paste("p-value =", formatC(mw_test_result$p.value, format = "e", digits = 2), "\n", decision), 
+           size = 4, 
+           color = "red") +
+  theme_minimal()
+
+# Regression Analysis
+# Aim: Predict Y= Number of billionaires based on education 
+# Perform Simple Linear Regression
+# Example: Simple Linear Regression
+model_simple <- lm(number_of_billionaires ~ gross_tertiary_education_enrollment, data = new_billionaires_clean)
+# Summarize results
+summary(model_simple)
+
+# Visualize the regression line
+ggplot(new_billionaires_clean, aes(x = gross_tertiary_education_enrollment, y = number_of_billionaires)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "blue") +
+  labs(title = "Simple Linear Regression Gross Tertiary Education Enrollment vs Number of Billionaires", x = "Gross Tertiary Education Enrollment", y = "Number of Billionaires")
+
+# residuals 
+residuals <- resid(model_simple)
+# Plot residuals
+plot(new_billionaires_clean$cpi_change_country, residuals, main = "Residuals", 
+     xlab = "Size (sq ft)", ylab = "Residuals", pch = 19)
+abline(h = 0, col = "red")
+
+# Multiple Linear Regression
+library(caTools)
+
+set.seed(42)
+
+#Splitting the dataset into training and testing data
+split = sample.split(new_billionaires_clean$number_of_billionaires, SplitRatio = 0.8)
+training_set = subset(new_billionaires_clean, split == TRUE)
+test_set = subset(new_billionaires_clean, split == FALSE)
+
+model_multiple <- lm(number_of_billionaires ~ gdp_country + life_expectancy_country + industry_diversity,
+                     data = training_set)
+summary(model_multiple)
+
+# Reduced Model
+model_multiple <- lm(number_of_billionaires ~ gdp_country + industry_diversity,
+                     data = training_set)
+summary(model_multiple)
+
+
+# Model Diagnostics
+# Calculate and plot the residuals
+par(mfrow=c(1, 2))
+plot(model_multiple$fitted.values, model_multiple$residuals, 
+     main="Residuals vs Fitted", xlab="Fitted values", ylab="Residuals")
+# Add a horizontal line at y = 0 to help assess residuals
+abline(h=0, col="red")
+
+#Plot the Cook Distance
+cooksD <- cooks.distance(model_multiple) 
+plot(cooksD, main="Cook's Distance", ylab="Cook's distance")
+n <- nrow(training_set)
+abline(h = 4/n, lty = 2, col = "red") # add cutoff line
+
+# Identify influential (outlier) data points
+influential_obs <- as.numeric(names(cooksD)[(cooksD > (4/n))])
+# Define new data frame with influential points removed
+outliers_removed <- training_set[-influential_obs, ]
+
+# Model Diagnostics after removing outliers
+# Visualizes  residuals against the predictors before and after outliers removed.
+par(mfrow = c(1, 2))
+# Before
+plot(model_multiple$fitted.values,model_multiple$residuals, 
+     main="Before: Residuals vs Fitted", xlab="Fitted values", ylab="Residuals")
+abline(h = 0, col = "red", lty = 2)
+#After
+model_after <- lm(number_of_billionaires ~ gdp_country + life_expectancy_country + industry_diversity,
+                  data = outliers_removed)
+plot(model_after$fitted.values, model_after$residuals, 
+     main="After: Residuals vs Fitted", xlab="Fitted values", ylab="Residuals")
+abline(h = 0, col = "red", lty = 2)
+
+# Check for multicollinearity using variance Inflation Factor (VIF)
+library(car)
+vif_values <- vif(model_multiple)
+print(vif_values)
+
+# 4. Prediction
+
+# Use the model to predict number of billionaires and the Confidence Interval for the new data
+predicted_billionaires <- predict(model_multiple, test_set, 
+                                  interval = "confidence", level = 0.95)
+predicted_billionaires
+
+# Combine actual and predicted values into the test set
+test_set_with_predictions <- cbind(test_set, predicted_billionaires)
+
+# Rename prediction columns for clarity
+names(test_set_with_predictions)[names(test_set_with_predictions) == "fit"] <- "Predicted_Billionaires"
+names(test_set_with_predictions)[names(test_set_with_predictions) == "lwr"] <- "Lower_Bound"
+names(test_set_with_predictions)[names(test_set_with_predictions) == "upr"] <- "Upper_Bound"
+
+# Scatter plot of Actual vs. Predicted with Confidence Intervals
+library(ggplot2)
+ggplot(test_set_with_predictions, aes(x = number_of_billionaires, y = Predicted_Billionaires)) +
+  geom_point(color = 'blue', size = 2) + # Points for actual vs predicted
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") + # 1:1 line
+  geom_errorbar(aes(ymin = Lower_Bound, ymax = Upper_Bound), width = 0.2, color = 'red') +
+  labs(
+    title = "Actual vs Predicted Number of Billionaires with Confidence Intervals",
+    x = "Actual Number of Billionaires",
+    y = "Predicted Number of Billionaires"
+  ) +
+  theme_minimal()
+
+
+# Use the model to predict number of billionaires and the Prediction Interval for the new data
+predicted_billionaires <- predict(model_multiple, test_set, 
+                                  interval = "prediction", level = 0.95)
+predicted_billionaires
+
+# Combine actual and predicted values into the test set
+test_set_with_predictions <- cbind(test_set, predicted_billionaires)
+
+# Rename prediction columns for clarity
+names(test_set_with_predictions)[names(test_set_with_predictions) == "fit"] <- "Predicted_Billionaires"
+names(test_set_with_predictions)[names(test_set_with_predictions) == "lwr"] <- "Lower_Bound"
+names(test_set_with_predictions)[names(test_set_with_predictions) == "upr"] <- "Upper_Bound"
+
+# Scatter plot of Actual vs. Predicted with Confidence Intervals
+library(ggplot2)
+ggplot(test_set_with_predictions, aes(x = number_of_billionaires, y = Predicted_Billionaires)) +
+  geom_point(color = 'blue', size = 2) + # Points for actual vs predicted
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") + # 1:1 line
+  geom_errorbar(aes(ymin = Lower_Bound, ymax = Upper_Bound), width = 0.2, color = 'red') +
+  labs(
+    title = "Actual vs Predicted Number of Billionaires with Confidence Intervals",
+    x = "Actual Number of Billionaires",
+    y = "Predicted Number of Billionaires"
+  ) +
+  theme_minimal()
+
+# Predicting number of billionaires in Malaysia for 2024
+new_data <- data.frame(gdp_country = 9e10, industry_diversity = 10)
+predictions <- predict(model_multiple, new_data, interval = "prediction")
+print(predictions)
+
+# Set the actual number of billionaires for Malaysia
+actual_billionaires <- 20
+
+# Create a comparison table
+comparison <- data.frame(
+  Country = "Malaysia",
+  Actual = actual_billionaires,                   # Actual number of billionaires (from Forbes.com)
+  Predicted = predictions[1],                    # Predicted number of billionaires
+  Lower_Confidence = predictions[2],             # Lower bound of confidence interval
+  Upper_Confidence = predictions[3]            # Upper bound of confidence interval
+)
+
+# Rename columns for clarity
+colnames(comparison) <- c("Country", "Actual (forbes.com)", "Predicted", "Lower Confidence", "Upper Confidence")
+
+# Print the comparison table
+print(comparison)
+
+# Visualisation
+library(ggplot2)
+
+# Generate data for the model's prediction range
+prediction_data <- data.frame(
+  gdp_country = seq(min(new_billionaires_clean$gdp_country), max(new_billionaires_clean$gdp_country), length.out = 100),  # Adjust range
+  industry_diversity = 10  # Keep constant
+)
+
+# Predict with intervals
+prediction_data <- cbind(
+  prediction_data,
+  predict(model_multiple, newdata = prediction_data, interval = "prediction")
+)
+
+# Plot
+ggplot(prediction_data, aes(x = gdp_country, y = fit)) +
+  geom_line(color = "blue", size = 1.2) +  # Predicted trend
+  geom_ribbon(aes(ymin = lwr, ymax = upr), alpha = 0.2, fill = "blue") +  # PI
+  geom_point(data = new_data, aes(x = gdp_country, y = predictions[1, "fit"]), color = "red", size = 3) +
+  labs(
+    title = "Prediction of Number of Billionaires in Malaysia (2024)",
+    x = "GDP (Country)",
+    y = "Predicted Number of Billionaires",
+    caption = "Blue line: Predicted trend | Shaded: Prediction Interval | Red: Malaysia 2024"
+  ) +
+  theme_minimal()
+

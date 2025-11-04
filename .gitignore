@@ -1,0 +1,35 @@
+# --- Python (if used) ---
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# --- R (if used) ---
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# --- Environments ---
+.env
+.venv/
+venv/
+env/
+.conda/
+
+# --- IDE / OS ---
+.vscode/
+.idea/
+*.code-workspace
+.DS_Store
+Thumbs.db
+
+# --- Data / Artifacts ---
+# Keep light CSVs tracked; ignore heavy intermediates if added later:
+# data/raw/
+# data/interim/
+# logs/
+# models/
+
+# --- Media ---
+Figures/**/*.gif
+Figures/**/*.mp4
